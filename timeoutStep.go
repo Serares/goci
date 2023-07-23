@@ -22,6 +22,10 @@ func newTimeoutStep(name, exe, message, proj string, args []string, timeout time
 	return s
 }
 
+// we will use this variable to
+// add a mock function and execute it when testing
+var command = exec.CommandContext
+
 func (s timeoutStep) execute() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	// run the cancel function to free up resources when the context is no longer required
@@ -30,7 +34,7 @@ func (s timeoutStep) execute() (string, error) {
 	// the WithTimeout defined a timeout for the current context
 	// if the timeout runs out the CommandContext function will kill the current
 	// running process
-	cmd := exec.CommandContext(ctx, s.exe, s.args...)
+	cmd := command(ctx, s.exe, s.args...)
 	cmd.Dir = s.proj
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

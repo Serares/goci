@@ -2,21 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // integration test
 func TestRun(t *testing.T) {
-	_, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("Git not installed. Skipping test")
-	}
 
 	var testCases = []struct {
 		name     string
@@ -24,29 +21,53 @@ func TestRun(t *testing.T) {
 		out      string
 		expErr   error
 		setupGit bool
+		mockCmd  func(ctx context.Context, name string, arg ...string) *exec.Cmd
 	}{
 		{name: "success", proj: "./testdata/tool/",
 			out:      "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGit Push: SUCCESS\n",
 			expErr:   nil,
 			setupGit: true,
+			mockCmd:  nil,
+		},
+		{name: "successMock", proj: "./testdata/tool/",
+			out:      "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGit Push: SUCCESS\n",
+			expErr:   nil,
+			setupGit: false,
+			mockCmd:  mockCmdContext,
 		},
 		{name: "fail", proj: "./testdata/toolErr",
 			out:      "",
 			expErr:   &stepErr{step: "go build"},
 			setupGit: false,
+			mockCmd:  nil,
 		},
 		{name: "failFmt", proj: "./testdata/toolFmtErr/",
 			out:      "",
 			expErr:   &stepErr{step: "go format"},
 			setupGit: false,
+			mockCmd:  nil,
+		},
+		{name: "failTimeout", proj: "./testdata/tool",
+			out:      "",
+			expErr:   context.DeadlineExceeded,
+			setupGit: false,
+			mockCmd:  mockCmdTimeout,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.setupGit {
+				_, err := exec.LookPath("git")
+				if err != nil {
+					t.Skip("Git not installed. Skipping test.")
+				}
 				cleanup := setupGit(t, tc.proj)
 				defer cleanup()
+			}
+
+			if tc.mockCmd != nil {
+				command = tc.mockCmd
 			}
 			var out bytes.Buffer
 
@@ -73,6 +94,49 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func mockCmdContext(ctx context.Context, exe string, args ...string) *exec.Cmd {
+	cs := []string{"-test.run=TestHelperProcess"}
+
+	cs = append(cs, exe)
+	cs = append(cs, args...)
+	// when you run go test
+	// go will actually run a binary of the program
+	// so os.Args[0] is the actual baniary path of the current program
+	cmd := exec.CommandContext(ctx, os.Args[0], cs...)
+	// this envs ensures the test isn't skipped
+	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+
+	return cmd
+}
+
+func mockCmdTimeout(ctx context.Context, exe string, args ...string) *exec.Cmd {
+	cmd := mockCmdContext(ctx, exe, args...)
+	// indicates it should run a long running process
+	cmd.Env = append(cmd.Env, "GO_HELPER_TIMEOUT=1")
+
+	return cmd
+}
+
+func TestHelperProcess(t *testing.T) {
+	// this is preventing the execution if it was not called from the
+	// mock command
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	// simulate a log running process if the variable is set to 1
+	if os.Getenv("GO_HELPER_TIMEOUT") == "1" {
+		time.Sleep(15 * time.Second)
+	}
+
+	if os.Args[2] == "git" {
+		fmt.Fprintln(os.Stdout, "Everything up-to-date")
+		os.Exit(0)
+	}
+	os.Exit(1)
+
+}
+
 func setupGit(t *testing.T, proj string) func() {
 	t.Helper()
 	// check if git command exists
@@ -81,7 +145,7 @@ func setupGit(t *testing.T, proj string) func() {
 		t.Fatal(err)
 	}
 
-	tempDir, err := ioutil.TempDir("", "gocitest")
+	tempDir, err := os.MkdirTemp("", "gocitest")
 	if err != nil {
 		t.Fatal(err)
 	}
