@@ -5,14 +5,74 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
 
 // integration test
+func TestRunKill(t *testing.T) {
+	var testCases = []struct {
+		name   string
+		proj   string
+		sig    syscall.Signal
+		expErr error
+	}{
+		{"SIGINT", "./testdata/tool", syscall.SIGINT, ErrSignal},
+		{"SIGTERM", "./testdata/tool", syscall.SIGTERM, ErrSignal},
+		{"SIGQUIT", "./testdata/tool", syscall.SIGQUIT, nil},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// override the command variable with timeout mock
+			// to give some time to the app to run the signals
+			command = mockCmdTimeout
+			errCh := make(chan error)
+			ignSigCh := make(chan os.Signal, 1)
+			expSigCh := make(chan os.Signal, 1)
+			signal.Notify(ignSigCh, syscall.SIGQUIT)
+			defer signal.Stop(ignSigCh)
+			signal.Notify(expSigCh, tc.sig)
+			defer signal.Stop(expSigCh)
+			go func() {
+				errCh <- run(tc.proj, io.Discard)
+			}()
+
+			go func() {
+				time.Sleep(2 * time.Second)
+				syscall.Kill(syscall.Getpid(), tc.sig)
+			}()
+
+			select {
+			case err := <-errCh:
+				if err == nil {
+					t.Errorf("expected error. Got 'nil' instead.")
+					return
+				}
+
+				if !errors.Is(err, tc.expErr) {
+					t.Errorf("expected error: %q. Got %q", tc.expErr, err)
+				}
+
+				select {
+				case rec := <-expSigCh:
+					if rec != tc.sig {
+						t.Errorf("expected signal %q, got %q", tc.sig, rec)
+					}
+				default:
+					t.Errorf("signal not received")
+				}
+			case <-ignSigCh:
+			}
+		})
+	}
+}
+
 func TestRun(t *testing.T) {
 
 	var testCases = []struct {
@@ -102,6 +162,13 @@ func mockCmdContext(ctx context.Context, exe string, args ...string) *exec.Cmd {
 	// when you run go test
 	// go will actually run a binary of the program
 	// so os.Args[0] is the actual baniary path of the current program
+	/**
+		$ ps -aux | grep go
+		$ go test -v
+	/tmp/go-build498058748/b001/goci.test -test.v=true -test.timeout=10m0s
+	/tmp/go-build498058748/b001/goci.test -test.run=TestHelperProcess git push
+	origin master
+	*/
 	cmd := exec.CommandContext(ctx, os.Args[0], cs...)
 	// this envs ensures the test isn't skipped
 	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}

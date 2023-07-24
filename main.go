@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -28,6 +30,12 @@ func run(proj string, out io.Writer) error {
 	}
 
 	pipeline := make([]executer, 4)
+	// handle at least one signal concurrently in case any signal is received
+	sig := make(chan os.Signal, 1)
+	errCh := make(chan error)
+	done := make(chan struct{})
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+
 	pipeline[0] = newStep(
 		"go build",
 		"go",
@@ -58,17 +66,30 @@ func run(proj string, out io.Writer) error {
 		10*time.Second,
 	)
 
-	for _, s := range pipeline {
-		msg, err := s.execute()
-		if err != nil {
-			return err
-		}
+	go func() {
+		for _, s := range pipeline {
+			msg, err := s.execute()
+			if err != nil {
+				errCh <- err
+			}
 
-		_, err = fmt.Fprintln(out, msg)
-		if err != nil {
+			_, err = fmt.Fprintln(out, msg)
+			if err != nil {
+				errCh <- err
+			}
+		}
+		close(done)
+	}()
+
+	for {
+		select {
+		case rec := <-sig:
+			signal.Stop(sig)
+			return fmt.Errorf("%s: Existing: %w", rec, ErrSignal)
+		case err := <-errCh:
 			return err
+		case <-done:
+			return nil
 		}
 	}
-
-	return nil
 }
