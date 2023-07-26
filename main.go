@@ -99,7 +99,7 @@ func run(proj string, out io.Writer) error {
 		select {
 		case rec := <-sig:
 			signal.Stop(sig)
-			return fmt.Errorf("%s: Existing: %w", rec, ErrSignal)
+			return fmt.Errorf("%s: Exiting: %w", rec, ErrSignal)
 		case err := <-errCh:
 			return err
 		case <-done:
