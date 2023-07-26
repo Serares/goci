@@ -16,65 +16,8 @@ import (
 )
 
 // integration test
-func TestRunKill(t *testing.T) {
-	var testCases = []struct {
-		name   string
-		proj   string
-		sig    syscall.Signal
-		expErr error
-	}{
-		{"SIGINT", "./testdata/tool", syscall.SIGINT, ErrSignal},
-		{"SIGTERM", "./testdata/tool", syscall.SIGTERM, ErrSignal},
-		{"SIGQUIT", "./testdata/tool", syscall.SIGQUIT, nil},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// override the command variable with timeout mock
-			// to give some time to the app to run the signals
-			command = mockCmdTimeout
-			errCh := make(chan error)
-			ignSigCh := make(chan os.Signal, 1)
-			expSigCh := make(chan os.Signal, 1)
-			signal.Notify(ignSigCh, syscall.SIGQUIT)
-			defer signal.Stop(ignSigCh)
-			signal.Notify(expSigCh, tc.sig)
-			defer signal.Stop(expSigCh)
-			go func() {
-				errCh <- run(tc.proj, io.Discard)
-			}()
-
-			go func() {
-				time.Sleep(2 * time.Second)
-				syscall.Kill(syscall.Getpid(), tc.sig)
-			}()
-
-			select {
-			case err := <-errCh:
-				if err == nil {
-					t.Errorf("expected error. Got 'nil' instead.")
-					return
-				}
-
-				if !errors.Is(err, tc.expErr) {
-					t.Errorf("expected error: %q. Got %q", tc.expErr, err)
-				}
-
-				select {
-				case rec := <-expSigCh:
-					if rec != tc.sig {
-						t.Errorf("expected signal %q, got %q", tc.sig, rec)
-					}
-				default:
-					t.Errorf("signal not received")
-				}
-			case <-ignSigCh:
-			}
-		})
-	}
-}
-
 func TestRun(t *testing.T) {
-
+	var successMessage string = "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGo Lint: SUCCESS\nGit Push: SUCCESS\n"
 	var testCases = []struct {
 		name     string
 		proj     string
@@ -84,13 +27,13 @@ func TestRun(t *testing.T) {
 		mockCmd  func(ctx context.Context, name string, arg ...string) *exec.Cmd
 	}{
 		{name: "success", proj: "./testdata/tool/",
-			out:      "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGit Push: SUCCESS\n",
+			out:      successMessage,
 			expErr:   nil,
 			setupGit: true,
 			mockCmd:  nil,
 		},
 		{name: "successMock", proj: "./testdata/tool/",
-			out:      "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGit Push: SUCCESS\n",
+			out:      successMessage,
 			expErr:   nil,
 			setupGit: false,
 			mockCmd:  mockCmdContext,
@@ -104,6 +47,12 @@ func TestRun(t *testing.T) {
 		{name: "failFmt", proj: "./testdata/toolFmtErr/",
 			out:      "",
 			expErr:   &stepErr{step: "go format"},
+			setupGit: false,
+			mockCmd:  nil,
+		},
+		{name: "failLint", proj: "./testdata/toolLintErr/",
+			out:      "",
+			expErr:   &stepErr{step: "lint"},
 			setupGit: false,
 			mockCmd:  nil,
 		},
@@ -154,6 +103,65 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestRunKill(t *testing.T) {
+	var testCases = []struct {
+		name   string
+		proj   string
+		sig    syscall.Signal
+		expErr error
+	}{
+		{"SIGINT", "./testdata/tool", syscall.SIGINT, ErrSignal},
+		{"SIGTERM", "./testdata/tool", syscall.SIGTERM, ErrSignal},
+		{"SIGQUIT", "./testdata/tool", syscall.SIGQUIT, nil},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// override the command variable with timeout mock
+			// to give some time to the app to run the signals
+			command = mockCmdTimeout
+			errCh := make(chan error)
+			ignSigCh := make(chan os.Signal, 1)
+			expSigCh := make(chan os.Signal, 1)
+			signal.Notify(ignSigCh, syscall.SIGQUIT)
+			defer signal.Stop(ignSigCh)
+			signal.Notify(expSigCh, tc.sig)
+			defer signal.Stop(expSigCh)
+			go func() {
+				errCh <- run(tc.proj, io.Discard)
+			}()
+
+			go func() {
+				time.Sleep(2 * time.Second)
+				if err := syscall.Kill(syscall.Getpid(), tc.sig); err != nil {
+					t.Errorf("error trying to kill the process")
+				}
+			}()
+
+			select {
+			case err := <-errCh:
+				if err == nil {
+					t.Errorf("expected error. Got 'nil' instead.")
+					return
+				}
+
+				if !errors.Is(err, tc.expErr) {
+					t.Errorf("expected error: %q. Got %q", tc.expErr, err)
+				}
+
+				select {
+				case rec := <-expSigCh:
+					if rec != tc.sig {
+						t.Errorf("expected signal %q, got %q", tc.sig, rec)
+					}
+				default:
+					t.Errorf("signal not received")
+				}
+			case <-ignSigCh:
+			}
+		})
+	}
+}
+
 func mockCmdContext(ctx context.Context, exe string, args ...string) *exec.Cmd {
 	cs := []string{"-test.run=TestHelperProcess"}
 
@@ -177,6 +185,7 @@ func mockCmdContext(ctx context.Context, exe string, args ...string) *exec.Cmd {
 }
 
 func mockCmdTimeout(ctx context.Context, exe string, args ...string) *exec.Cmd {
+	fmt.Println("Mock command used timeout used")
 	cmd := mockCmdContext(ctx, exe, args...)
 	// indicates it should run a long running process
 	cmd.Env = append(cmd.Env, "GO_HELPER_TIMEOUT=1")
@@ -252,7 +261,7 @@ func setupGit(t *testing.T, proj string) func() {
 		}
 
 		if err := gitCmd.Run(); err != nil {
-			t.Fatal(err)
+			t.Errorf("error running git command %s, : %q", g.args, err)
 		}
 	}
 	return func() {

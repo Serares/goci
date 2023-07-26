@@ -29,7 +29,7 @@ func run(proj string, out io.Writer) error {
 		return fmt.Errorf("project directory is required %w", ErrValidation)
 	}
 
-	pipeline := make([]executer, 4)
+	pipeline := make([]executer, 5)
 	// handle at least one signal concurrently in case any signal is received
 	sig := make(chan os.Signal, 1)
 	errCh := make(chan error)
@@ -57,7 +57,14 @@ func run(proj string, out io.Writer) error {
 		proj,
 		[]string{"-l", "./"},
 	)
-	pipeline[3] = newTimeoutStep(
+	pipeline[3] = newExceptionStep(
+		"lint",
+		"golangci-lint",
+		"Go Lint: SUCCESS",
+		proj,
+		[]string{"run", "."},
+	)
+	pipeline[4] = newTimeoutStep(
 		"git push",
 		"git",
 		"Git Push: SUCCESS",
