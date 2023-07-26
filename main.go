@@ -29,7 +29,7 @@ func run(proj string, out io.Writer) error {
 		return fmt.Errorf("project directory is required %w", ErrValidation)
 	}
 
-	pipeline := make([]executer, 5)
+	pipeline := make([]executer, 6)
 	// handle at least one signal concurrently in case any signal is received
 	sig := make(chan os.Signal, 1)
 	errCh := make(chan error)
@@ -64,7 +64,14 @@ func run(proj string, out io.Writer) error {
 		proj,
 		[]string{"run", "."},
 	)
-	pipeline[4] = newTimeoutStep(
+	pipeline[4] = newExceptionStep(
+		"cyclo",
+		"gocyclo",
+		"Go Cyclo: SUCCESS",
+		proj,
+		[]string{"-over", "10", "."},
+	)
+	pipeline[5] = newTimeoutStep(
 		"git push",
 		"git",
 		"Git Push: SUCCESS",

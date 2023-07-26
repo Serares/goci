@@ -17,7 +17,7 @@ import (
 
 // integration test
 func TestRun(t *testing.T) {
-	var successMessage string = "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGo Lint: SUCCESS\nGit Push: SUCCESS\n"
+	var successMessage string = "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGo Lint: SUCCESS\nGo Cyclo: SUCCESS\nGit Push: SUCCESS\n"
 	var testCases = []struct {
 		name     string
 		proj     string
@@ -53,6 +53,12 @@ func TestRun(t *testing.T) {
 		{name: "failLint", proj: "./testdata/toolLintErr/",
 			out:      "",
 			expErr:   &stepErr{step: "lint"},
+			setupGit: false,
+			mockCmd:  nil,
+		},
+		{name: "failCyclo", proj: "./testdata/toolCycloErr/",
+			out:      "",
+			expErr:   &stepErr{step: "cyclo"},
 			setupGit: false,
 			mockCmd:  nil,
 		},
