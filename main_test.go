@@ -16,6 +16,9 @@ import (
 )
 
 // integration test
+// TODO tests are not working atm
+// steps are beeing generated from a yaml file
+// and the tests are not aware of this
 func TestRun(t *testing.T) {
 	var successMessage string = "Go Build: SUCCESS\nGo Test: SUCCESS\nGo Format: SUCCESS\nGo Lint: SUCCESS\nGo Cyclo: SUCCESS\nGit Push: SUCCESS\n"
 	var testCases = []struct {
