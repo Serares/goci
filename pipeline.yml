@@ -1,0 +1,45 @@
+steps:
+  - name: "go build"
+    cmd: "go"
+    msg: "Go Build: SUCCESS"
+    args:
+      - "build"
+      - "."
+      - "errors"
+  - name: "test"
+    cmd: "go"
+    msg: "Go Test: SUCCESS"
+    args:
+      - "test"
+      - "-v"
+      - "."
+  - name: "format"
+    cmd: "gofmt"
+    msg: "Go Format: SUCCESS"
+    args:
+      - "-l"
+      - "./"
+    hasException: true
+  - name: "lint"
+    cmd: "golangci-lint"
+    msg: "Go Lint: SUCCESS"
+    args:
+      - "run"
+      - "."
+    hasException: true
+  - name: "cyclomatic"
+    cmd: "gocyclo"
+    msg: "Cyclomatic: SUCCESS"
+    args:
+      - "-over"
+      - "10"
+      - "."
+    hasException: true
+  - name: "git push"
+    cmd: "git"
+    msg: "Git Push: SUCCESS"
+    args:
+      - "push"
+      - "origin"
+    branch: "main"
+    timeout: 15

@@ -8,6 +8,7 @@ import (
 var (
 	ErrValidation = errors.New("validation failed")
 	ErrSignal     = errors.New("received signal")
+	ErrConfigRead = errors.New("can't read the config file provided")
 )
 
 type stepErr struct {

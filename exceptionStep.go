@@ -28,12 +28,14 @@ func (e exceptionStep) execute() (string, error) {
 	cmd := exec.Command(e.exe, e.args...)
 	// create a buffer to capture the output of the command
 	var out bytes.Buffer
+	var outErr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Dir = e.proj
+	cmd.Stderr = &outErr
 	if err := cmd.Run(); err != nil {
 		return "", &stepErr{
 			step:  e.name,
-			msg:   "failed to execute",
+			msg:   fmt.Sprintf("failed to execute:\n %s\n err: %v", outErr.String(), err.Error()),
 			cause: err,
 		}
 	}

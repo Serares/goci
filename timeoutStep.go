@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
 	"time"
 )
@@ -27,6 +29,8 @@ func newTimeoutStep(name, exe, message, proj string, args []string, timeout time
 var command = exec.CommandContext
 
 func (s timeoutStep) execute() (string, error) {
+	var outErr bytes.Buffer
+	var out bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	// run the cancel function to free up resources when the context is no longer required
 	defer cancel()
@@ -36,6 +40,8 @@ func (s timeoutStep) execute() (string, error) {
 	// running process
 	cmd := command(ctx, s.exe, s.args...)
 	cmd.Dir = s.proj
+	cmd.Stderr = &outErr
+	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", &stepErr{
@@ -47,7 +53,7 @@ func (s timeoutStep) execute() (string, error) {
 
 		return "", &stepErr{
 			step:  s.name,
-			msg:   "failed to execute",
+			msg:   fmt.Sprintf("failed to execute \nErr:\n %s\n Output:\n %s", outErr.String(), out.String()),
 			cause: err,
 		}
 	}

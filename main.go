@@ -7,81 +7,55 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 )
 
 type executer interface {
 	execute() (string, error)
 }
 
+type config struct {
+	branch       string
+	project      string
+	steps        []executer
+	pipelinePath string
+}
+
 func main() {
 	proj := flag.String("p", "", "Project directory")
+	gitBranch := flag.String("branch", "", "git branch to push to")
+	pipelinePath := flag.String("pipeline", "", "path of the pipeline yaml file that holds the steps")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stdout, "Provide the flags as in the following list:\n")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
-
-	if err := run(*proj, os.Stdout); err != nil {
+	cfg := config{
+		branch:       *gitBranch,
+		project:      *proj,
+		pipelinePath: *pipelinePath,
+	}
+	steps, err := generateSteps(cfg)
+	if err != nil {
+		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	cfg.steps = steps
+	if err := run(cfg, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(proj string, out io.Writer) error {
-	if proj == "" {
-		return fmt.Errorf("project directory is required %w", ErrValidation)
-	}
-
-	pipeline := make([]executer, 6)
+func run(config config, out io.Writer) error {
 	// handle at least one signal concurrently in case any signal is received
 	sig := make(chan os.Signal, 1)
 	errCh := make(chan error)
 	done := make(chan struct{})
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 
-	pipeline[0] = newStep(
-		"go build",
-		"go",
-		"Go Build: SUCCESS",
-		proj,
-		[]string{"build", ".", "errors"}, // we are adding the errors package to not generate a binary
-	)
-	pipeline[1] = newStep(
-		"go test",
-		"go",
-		"Go Test: SUCCESS",
-		proj,
-		[]string{"test", "-v"},
-	)
-	pipeline[2] = newExceptionStep(
-		"go format",
-		"gofmt",
-		"Go Format: SUCCESS",
-		proj,
-		[]string{"-l", "./"},
-	)
-	pipeline[3] = newExceptionStep(
-		"lint",
-		"golangci-lint",
-		"Go Lint: SUCCESS",
-		proj,
-		[]string{"run", "."},
-	)
-	pipeline[4] = newExceptionStep(
-		"cyclo",
-		"gocyclo",
-		"Go Cyclo: SUCCESS",
-		proj,
-		[]string{"-over", "10", "."},
-	)
-	pipeline[5] = newTimeoutStep(
-		"git push",
-		"git",
-		"Git Push: SUCCESS",
-		proj,
-		[]string{"push", "origin", "master"},
-		10*time.Second,
-	)
-
 	go func() {
-		for _, s := range pipeline {
+		for _, s := range config.steps {
 			msg, err := s.execute()
 			if err != nil {
 				errCh <- err
